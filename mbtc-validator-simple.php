@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: mBTC Validator Simple
- * Description: Permet aux validateurs connectés de soumettre des preuves à l'orchestrateur mBTC via une API sécurisée. Version stable avec barre de progression et diagnostic.
- * Version: 1.8.0
+ * Description: Permet aux validateurs connectés de soumettre des preuves à l'orchestrateur mBTC via une API sécurisée.
+ * Version: 1.9.0
  * Author: Alain St-Germain
  * License: GPL v3 or later
  * Text Domain: mbtc-validator
@@ -22,6 +22,17 @@ class MBTC_Validator_Simple {
         add_action('wp_ajax_mbtc_clear_logs', [$this, 'ajax_clear_logs']);
         add_action('wp_ajax_mbtc_test_manual_upload', [$this, 'ajax_test_manual_upload']);
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), [$this, 'add_settings_link']);
+
+        // Pour le front-end, on enregistre le script avec localisation
+        add_action('wp_enqueue_scripts', [$this, 'register_front_script']);
+    }
+
+    public function register_front_script() {
+        wp_register_script('mbtc-front', false, ['jquery'], '1.0', true);
+        wp_localize_script('mbtc-front', 'mbtc_ajax', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('mbtc_ajax_nonce')
+        ]);
     }
 
     public function add_admin_menu() {
@@ -134,7 +145,7 @@ class MBTC_Validator_Simple {
         if (!is_user_logged_in()) {
             return '<p>' . __('Vous devez être connecté pour soumettre une preuve.', 'mbtc-validator') . '</p>';
         }
-        wp_enqueue_script('jquery');
+        wp_enqueue_script('mbtc-front'); // Notre script localisé
         ob_start();
         ?>
         <style>
@@ -149,7 +160,7 @@ class MBTC_Validator_Simple {
         </style>
         <div class="mbtc-form">
             <form id="mbtc-upload-form" enctype="multipart/form-data">
-                <?php wp_nonce_field('mbtc_ajax_nonce', 'mbtc_nonce'); ?>
+                <input type="hidden" name="mbtc_nonce" value="<?php echo wp_create_nonce('mbtc_ajax_nonce'); ?>">
                 <input type="file" name="proof_file" accept=".json,.gpg" required>
                 <input type="submit" value="<?php _e('Soumettre la preuve', 'mbtc-validator'); ?>">
             </form>
@@ -165,13 +176,13 @@ class MBTC_Validator_Simple {
             console.log('✅ mBTC JS chargé avec succès');
             $('#mbtc-js-status').html('<span style="color:green;">✓ JavaScript chargé</span>');
 
-            // Vérifier la présence de ajaxurl
-            if (typeof ajaxurl === 'undefined') {
-                console.error('❌ ajaxurl non défini');
-                $('#mbtc-js-status').append('<br><span style="color:red;">❌ ajaxurl manquant</span>');
+            // Vérifier la présence de mbtc_ajax.ajaxurl
+            if (typeof mbtc_ajax === 'undefined' || !mbtc_ajax.ajaxurl) {
+                console.error('❌ mbtc_ajax non défini');
+                $('#mbtc-js-status').append('<br><span style="color:red;">❌ mbtc_ajax manquant</span>');
             } else {
-                console.log('✅ ajaxurl = ' + ajaxurl);
-                $('#mbtc-js-status').append('<br><span style="color:green;">✓ ajaxurl trouvé</span>');
+                console.log('✅ mbtc_ajax.ajaxurl = ' + mbtc_ajax.ajaxurl);
+                $('#mbtc-js-status').append('<br><span style="color:green;">✓ mbtc_ajax.ajaxurl trouvé</span>');
             }
 
             // Vérifier que le formulaire existe
@@ -191,6 +202,7 @@ class MBTC_Validator_Simple {
 
                 var formData = new FormData(this);
                 formData.append('action', 'mbtc_upload_proof');
+                formData.append('mbtc_nonce', mbtc_ajax.nonce);
 
                 // Afficher le contenu de FormData dans la console
                 console.log('FormData entries:');
@@ -203,7 +215,7 @@ class MBTC_Validator_Simple {
                 $('#mbtc-message').empty();
 
                 $.ajax({
-                    url: ajaxurl,
+                    url: mbtc_ajax.ajaxurl,
                     type: 'POST',
                     data: formData,
                     processData: false,
@@ -220,7 +232,7 @@ class MBTC_Validator_Simple {
                         return xhr;
                     },
                     beforeSend: function() {
-                        console.log('📡 Envoi de la requête AJAX vers ' + ajaxurl);
+                        console.log('📡 Envoi de la requête AJAX vers ' + mbtc_ajax.ajaxurl);
                     },
                     success: function(resp) {
                         console.log('✅ Réponse reçue:', resp);
