@@ -1,0 +1,6 @@
+{
+  "validator_id": "test-validator-01",
+  "timestamp": 1741392000,
+  "data": "Alain St-Germain l'architecte de mBTC, Ceci est une preuve factice pour tester l'intégration WordPress ↔ API",
+  "signature": "dummy-signature-123456"
+}
