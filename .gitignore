@@ -1,1 +1,9 @@
 *.log
+wp-config.php
+.DS_Store
+*.backup
+*.sql
+*.gpg
+/var/
+/tmp/
+*.local.php
