@@ -2,7 +2,7 @@
 /**
  * Plugin Name: mBTC Validator Simple
  * Description: Permet aux validateurs connectés de soumettre des preuves à l'orchestrateur mBTC via une API sécurisée.
- * Version: 2.0.1 (Renommage classe)
+ * Version: 2.0.2 (Ajout logs et correction test AJAX)
  * Author: Alain St-Germain
  * License: GPL v3 or later
  * Text Domain: mbtc-validator
@@ -28,6 +28,10 @@ class MBTC_Validator_Simple_Plugin {
         add_action('wp_ajax_mbtc_clear_logs', [$this, 'ajax_clear_logs']);
         add_action('wp_ajax_mbtc_test_manual_upload', [$this, 'ajax_test_manual_upload']);
         add_action('wp_ajax_mbtc_log_ajaxurl_status', [$this, 'ajax_log_ajaxurl_status']);
+        
+        // Actions AJAX pour le test sans authentification (utilisé dans le shortcode)
+        add_action('wp_ajax_mbtc_test_connection_no_auth', [$this, 'ajax_test_connection_no_auth']);
+        add_action('wp_ajax_nopriv_mbtc_test_connection_no_auth', [$this, 'ajax_test_connection_no_auth']);
         
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), [$this, 'add_settings_link']);
         
@@ -147,8 +151,10 @@ class MBTC_Validator_Simple_Plugin {
     public function enqueue_front_scripts() {
         global $post;
         if (!is_a($post, 'WP_Post') || !has_shortcode($post->post_content, 'mbtc_submit_proof')) {
+            $this->debug_log("Front scripts not enqueued – shortcode not found on page ID " . ($post->ID ?? 'unknown'));
             return;
         }
+        $this->debug_log("Front scripts enqueued – shortcode present on page ID " . $post->ID);
         
         wp_enqueue_script('mbtc-front', false, ['jquery'], '3.6.1', true);
         wp_localize_script('mbtc-front', 'mbtc_front_ajax', [
@@ -187,27 +193,27 @@ class MBTC_Validator_Simple_Plugin {
             <form method="post" action="options.php">
                 <?php settings_fields('mbtc_options'); ?>
                 <table class="form-table">
-                      <tr>
+                    <tr>
                         <th scope="row"><label for="mbtc_api_url"><?php _e('URL de l\'API', 'mbtc-validator'); ?></label></th>
                         <td>
                             <input type="url" id="mbtc_api_url" name="mbtc_api_url" value="<?php echo esc_attr(get_option('mbtc_api_url', 'http://localhost:5000/submit')); ?>" class="regular-text" />
                             <p class="description"><?php _e('Exemple : http://192.168.1.100:5000/submit', 'mbtc-validator'); ?></p>
                         </td>
-                      </tr>
-                       <tr>
+                    </tr>
+                    <tr>
                         <th scope="row"><label for="mbtc_api_token"><?php _e('Token secret', 'mbtc-validator'); ?></label></th>
-                         <td>
+                        <td>
                             <input type="text" id="mbtc_api_token" name="mbtc_api_token" value="<?php echo esc_attr(get_option('mbtc_api_token', '')); ?>" class="regular-text" />
-                         </td>
-                       </tr>
-                       <tr>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row"><label for="mbtc_debug_log"><?php _e('Mode debug', 'mbtc-validator'); ?></label></th>
-                         <td>
+                        <td>
                             <input type="checkbox" id="mbtc_debug_log" name="mbtc_debug_log" value="1" <?php checked(get_option('mbtc_debug_log', 0)); ?> />
                             <label for="mbtc_debug_log"><?php _e('Activer les logs détaillés dans', 'mbtc-validator'); ?> <code><?php echo $log_file; ?></code></label>
-                         </td>
-                       </tr>
-                   </table>
+                        </td>
+                    </tr>
+                </table>
                 <?php submit_button(); ?>
             </form>
             <hr>
@@ -342,16 +348,27 @@ class MBTC_Validator_Simple_Plugin {
             debugDiv.html('AJAX URL: ' + ajaxUrl + '<br>');
             debugDiv.append('Nonce présent: ' + (nonce ? 'Oui' : 'Non') + '<br>');
             
+            // Test AJAX avec action dédiée (publique)
             $.ajax({
                 url: ajaxUrl,
                 type: 'POST',
                 data: { action: 'mbtc_test_connection_no_auth', _ajax_nonce: nonce },
                 timeout: 5000,
-                success: function() {
+                success: function(resp) {
                     statusDiv.html('<span class="status-ok">✓ AJAX fonctionnel</span>');
+                    debugDiv.append('Test AJAX réussi : ' + (resp.data || 'OK') + '<br>');
                 },
-                error: function() {
-                    statusDiv.html('<span class="status-err">⚠ AJAX non disponible</span>');
+                error: function(xhr, status, error) {
+                    var errorMsg = '⚠ AJAX non disponible : ' + error;
+                    if (xhr.status === 404) errorMsg = '⚠ AJAX non disponible : 404 (admin-ajax.php introuvable)';
+                    else if (xhr.status === 403) errorMsg = '⚠ AJAX non disponible : 403 (accès refusé)';
+                    else if (status === 'timeout') errorMsg = '⚠ AJAX non disponible : timeout (le serveur ne répond pas)';
+                    statusDiv.html('<span class="status-err">' + errorMsg + '</span>');
+                    debugDiv.append('Erreur AJAX : ' + error + '<br>');
+                    debugDiv.append('Statut : ' + xhr.status + ' - ' + xhr.statusText + '<br>');
+                    if (xhr.responseText) {
+                        debugDiv.append('Premiers 200 caractères de la réponse : ' + xhr.responseText.substring(0, 200) + '<br>');
+                    }
                 }
             });
             
@@ -408,10 +425,12 @@ class MBTC_Validator_Simple_Plugin {
 
     // Méthode AJAX de test sans authentification
     public function ajax_test_connection_no_auth() {
+        $this->debug_log("AJAX test connection_no_auth called");
         wp_send_json_success(__('Connexion AJAX établie.', 'mbtc-validator'));
     }
 
     public function ajax_test_connection() {
+        $this->debug_log("AJAX test connection called");
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permissions insuffisantes.', 'mbtc-validator'));
         }
@@ -431,6 +450,7 @@ class MBTC_Validator_Simple_Plugin {
         ]);
         
         if (is_wp_error($response)) {
+            $this->debug_log("Test connexion error: " . $response->get_error_message());
             wp_send_json_error(__('Erreur de connexion : ', 'mbtc-validator') . $response->get_error_message());
         }
         
@@ -439,13 +459,16 @@ class MBTC_Validator_Simple_Plugin {
         $data = json_decode($body, true);
         
         if ($code === 200 && isset($data['status']) && $data['status'] === 'healthy') {
+            $this->debug_log("Test connexion successful");
             wp_send_json_success(__('Connexion réussie à l\'API.', 'mbtc-validator'));
         } else {
+            $this->debug_log("Test connexion unexpected response: code $code, body $body");
             wp_send_json_error(sprintf(__('Réponse inattendue (code %s).', 'mbtc-validator'), $code));
         }
     }
 
     public function ajax_test_manual_upload() {
+        $this->debug_log("AJAX test manual upload called");
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permissions insuffisantes.', 'mbtc-validator'));
         }
@@ -467,32 +490,40 @@ class MBTC_Validator_Simple_Plugin {
     }
 
     public function ajax_upload_proof() {
+        $this->debug_log("Upload proof request started");
         if (!isset($_POST['mbtc_nonce']) || !wp_verify_nonce($_POST['mbtc_nonce'], 'mbtc_ajax_nonce')) {
+            $this->debug_log("Upload proof: invalid nonce");
             wp_send_json_error(__('Nonce invalide.', 'mbtc-validator'));
         }
         if (!is_user_logged_in()) {
+            $this->debug_log("Upload proof: user not logged in");
             wp_send_json_error(__('Utilisateur non connecté.', 'mbtc-validator'));
         }
         if (empty($_FILES['proof_file'])) {
+            $this->debug_log("Upload proof: no file received");
             wp_send_json_error(__('Aucun fichier reçu.', 'mbtc-validator'));
         }
 
         $file = $_FILES['proof_file'];
         if ($file['error'] !== UPLOAD_ERR_OK) {
+            $this->debug_log("Upload proof: PHP upload error: " . $file['error']);
             wp_send_json_error(__('Erreur upload PHP.', 'mbtc-validator'));
         }
 
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (!in_array($ext, ['json', 'gpg'])) {
+            $this->debug_log("Upload proof: invalid extension: $ext");
             wp_send_json_error(__('Extension non autorisée.', 'mbtc-validator'));
         }
         if ($file['size'] > 10 * 1024 * 1024) {
+            $this->debug_log("Upload proof: file too large: " . $file['size']);
             wp_send_json_error(__('Fichier trop lourd.', 'mbtc-validator'));
         }
 
         $api_url = get_option('mbtc_api_url');
         $token = get_option('mbtc_api_token');
         if (empty($api_url) || empty($token)) {
+            $this->debug_log("Upload proof: API config missing");
             wp_send_json_error(__('Config API manquante.', 'mbtc-validator'));
         }
 
@@ -520,7 +551,7 @@ class MBTC_Validator_Simple_Plugin {
         $response = wp_remote_post($api_url, $args);
 
         if (is_wp_error($response)) {
-            $this->debug_log("API Error: " . $response->get_error_message());
+            $this->debug_log("Upload proof: API error: " . $response->get_error_message());
             wp_send_json_error(__('Erreur connexion API.', 'mbtc-validator'));
         }
 
@@ -528,15 +559,17 @@ class MBTC_Validator_Simple_Plugin {
         $response_body = wp_remote_retrieve_body($response);
 
         if ($code !== 200) {
-            $this->debug_log("API Response Code: $code, Body: $response_body");
+            $this->debug_log("Upload proof: API response code $code, body: $response_body");
             wp_send_json_error(sprintf(__('Erreur API (Code %s).', 'mbtc-validator'), $code));
         }
 
         $data = json_decode($response_body, true);
         if (!isset($data['status']) || $data['status'] !== 'ok') {
+            $this->debug_log("Upload proof: invalid API response: " . $response_body);
             wp_send_json_error(__('Réponse API invalide.', 'mbtc-validator'));
         }
 
+        $this->debug_log("Upload proof: success, filename " . sanitize_file_name($data['filename']));
         wp_send_json_success(sprintf(__('Succès! Fichier: %s', 'mbtc-validator'), sanitize_file_name($data['filename'])));
     }
 
