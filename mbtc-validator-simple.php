@@ -2,7 +2,7 @@
 /**
  * Plugin Name: mBTC Validator Simple
  * Description: Permet aux validateurs connectés de soumettre des preuves à l'orchestrateur mBTC via une API sécurisée.
- * Version: 2.0.2 (Ajout logs et correction test AJAX)
+ * Version: 2.0.3 (Correction script admin + nonces)
  * Author: Alain St-Germain
  * License: GPL v3 or later
  * Text Domain: mbtc-validator
@@ -35,7 +35,7 @@ class MBTC_Validator_Simple_Plugin {
         
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), [$this, 'add_settings_link']);
         
-        // Scripts pour l'admin (utilise notre propre variable)
+        // Scripts pour l'admin (utilise jQuery existant)
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
         
         // Scripts pour le front-end (shortcode)
@@ -131,17 +131,16 @@ class MBTC_Validator_Simple_Plugin {
     }
 
     /**
-     * Scripts pour l'administration (utilise mbtc_admin_ajax)
+     * Scripts pour l'administration (utilise jQuery existant)
      */
     public function enqueue_admin_scripts($hook) {
         if ($hook !== 'settings_page_mbtc-validator') {
             return;
         }
-        
-        wp_enqueue_script('mbtc-admin', false, ['jquery'], '3.6.1', true);
-        wp_localize_script('mbtc-admin', 'mbtc_admin_ajax', [
+        // On localise jQuery qui est déjà présent
+        wp_localize_script('jquery', 'mbtc_admin_ajax', [
             'ajaxurl' => $this->ajax_url,
-            'nonce'   => wp_create_nonce('mbtc_ajax_nonce')
+            'nonce'   => wp_create_nonce('mbtc_admin_nonce')
         ]);
     }
 
@@ -431,6 +430,9 @@ class MBTC_Validator_Simple_Plugin {
 
     public function ajax_test_connection() {
         $this->debug_log("AJAX test connection called");
+        if (!check_ajax_referer('mbtc_admin_nonce', '_ajax_nonce', false)) {
+            wp_send_json_error(__('Nonce invalide.', 'mbtc-validator'));
+        }
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permissions insuffisantes.', 'mbtc-validator'));
         }
@@ -469,6 +471,9 @@ class MBTC_Validator_Simple_Plugin {
 
     public function ajax_test_manual_upload() {
         $this->debug_log("AJAX test manual upload called");
+        if (!check_ajax_referer('mbtc_admin_nonce', '_ajax_nonce', false)) {
+            wp_send_json_error(__('Nonce invalide.', 'mbtc-validator'));
+        }
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permissions insuffisantes.', 'mbtc-validator'));
         }
@@ -574,6 +579,9 @@ class MBTC_Validator_Simple_Plugin {
     }
 
     public function ajax_view_logs() {
+        if (!check_ajax_referer('mbtc_admin_nonce', '_ajax_nonce', false)) {
+            wp_send_json_error('Nonce invalide.');
+        }
         if (!current_user_can('manage_options')) wp_send_json_error('Accès refusé');
         $log_file = WP_CONTENT_DIR . '/mbtc-debug.log';
         if (!file_exists($log_file)) wp_send_json_error('Aucun log.');
@@ -584,6 +592,9 @@ class MBTC_Validator_Simple_Plugin {
     }
 
     public function ajax_clear_logs() {
+        if (!check_ajax_referer('mbtc_admin_nonce', '_ajax_nonce', false)) {
+            wp_send_json_error('Nonce invalide.');
+        }
         if (!current_user_can('manage_options')) wp_send_json_error('Accès refusé');
         $log_file = WP_CONTENT_DIR . '/mbtc-debug.log';
         if (file_exists($log_file)) unlink($log_file);
