@@ -9,3 +9,4 @@ Le plugin limite à 10 Mo
 
 Investir dans mBTC validator, c'est soutenir une infrastructure blockchain souveraine conçue pour l'utilité réelle à grande échelle — loin de la spéculation tokenisée. Notre Core v2.0.3, déjà opérationnel, permet à des secteurs concrets (transport, éducation, santé, commerce local) de générer des preuves immuables ancrées...
 Architecture technique validée on-chain, https://polygonscan.com/address/0x29f4bfb15b5a641732e87856078208d35c6b3b89
+Vous gérez un site WordPress, vous savez combien votre contenu a de la valeur. Transformez-le en un generateur/validator et gagnez des récompenses.
